@@ -1,0 +1,42 @@
+DATA:
+  augmentations: []
+  data_root: D:/CSAM/FSC147/
+  img_size: 384
+  mean:
+  - 0.485
+  - 0.456
+  - 0.406
+  std:
+  - 0.229
+  - 0.224
+  - 0.225
+  test_name: default
+  train_name: FSC
+  workers: 1
+DISTRIBUTED:
+  gpus:
+  - 0
+EVALUATION:
+  ckpt_used: best
+MODEL:
+  model_dir: model_ckpt
+  pretrain: D:/CSAM/VLCounter/pretrain/
+TRAIN:
+  batch_size: 1
+  ckpt_path: checkpoints/
+  epochs: 300
+  log_freq: 300
+  lr: 0.0001
+  manual_seed: 42
+  save_models: true
+  weight_decay: 0.01
+con: rank
+config: config_files/FSC.yaml
+enc: spt
+exp: 1
+gpus:
+- 0
+num_tokens: 10
+patch_size: 16
+prompt: plural
+resume_weights: null
