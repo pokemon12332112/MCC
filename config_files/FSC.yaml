@@ -1,7 +1,7 @@
 DATA:
   train_name: FSC
   test_name: default
-  data_root: /kaggle/input/fsc147 # Path to your dataset
+  data_root: /kaggle/input/fsc147-0/FSC147 # Path to your dataset
   workers: 2 # Number of GPU you have
   img_size: 384
   mean: [0.485, 0.456, 0.406]
