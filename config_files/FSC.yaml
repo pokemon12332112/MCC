@@ -1,8 +1,8 @@
 DATA:
   train_name: FSC
   test_name: default
-  data_root: D:/CSAM/FSC147/
-  workers: 1
+  data_root: ./FSC147/ # Path to your dataset
+  workers: 2 # Number of GPU you have
   img_size: 384
   mean: [0.485, 0.456, 0.406]
   std: [0.229, 0.224, 0.225]
@@ -18,7 +18,7 @@ TRAIN:
   lr: 1.0e-4
   weight_decay: 1.0e-2
 MODEL:
-  pretrain: D:/CSAM/VLCounter/pretrain/
+  pretrain: D:/CSAM/VLCounter/pretrain/ # Pretrain model
   model_dir: model_ckpt
 
 EVALUATION:
