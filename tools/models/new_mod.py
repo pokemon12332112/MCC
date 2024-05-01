@@ -177,7 +177,7 @@ class Counter(nn.Module):
                 x = d(x + self.proj2(v[-4]) * F.interpolate(affine_attn_map, scale_factor=8))
             else:
                 x = d(x)
-        print('density map, attention map', x.shape, F.interpolate(affine_attn_map, scale_factor=16).shape)
+        # print('density map, attention map', x.shape, F.interpolate(affine_attn_map, scale_factor=16).shape)
         return x, F.interpolate(affine_attn_map, scale_factor=16), affine_attn_map
 
     def d3_to_d4(self, t):
