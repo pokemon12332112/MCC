@@ -57,7 +57,7 @@ docker pull sgkang0305/vlcounter
 
 ### 3. Download CLIP weight and Byte pair encoding (BPE) file
 
-Please download the [CLIP pretrained weight](https://openaipublic.azureedge.net/clip/models/5806e77cd80f8b59890b7e101eabd078d9fb84e6937f9e85e4ecb61988df416f/ViT-B-16.pt) and locate the file under the "pretrain" folder.
+Please download the [CLIP pretrained weight](https://openaipublic.azureedge.net/clip/models/5806e77cd80f8b59890b7e101eabd078d9fb84e6937f9e85e4ecb61988df416f/ViT-B-16.pt) (or Google Drive link here: [here](https://drive.google.com/drive/folders/1EwJYQXpC5tZ4D3dXoXCrkBVEPEyWlawl?usp=sharing))and locate the file under the "pretrain" folder.
 
 
 ## Run the Code
