@@ -1,5 +1,4 @@
 # MCC
-# VLCounter: Text-aware Visual Representation for Zero-Shot Object Counting
 
 ## Contents
 * [Preparation](#preparation)
