@@ -76,6 +76,9 @@ class Counter(nn.Module):
                 for i in range(fim_depth)
             ]
         )
+        self.aff_proj = nn.Sequential(
+            nn.Conv2d(64, 1, 1, 1)
+        )
         self.proj = nn.Sequential(
             nn.Conv2d(768, proj_dims, 1),
             nn.GroupNorm(8, proj_dims),
@@ -96,7 +99,7 @@ class Counter(nn.Module):
             nn.UpsamplingBilinear2d(scale_factor=8)
         )
         self.decoder = nn.ModuleList([
-                                    UpConv(proj_dims, proj_dims, 3, 1),
+                                    UpConv(1, proj_dims, 3, 1),
                                     UpConv(proj_dims, proj_dims, 3,1),
                                     UpConv(proj_dims, proj_dims, 3, 1),
                                     UpConv(proj_dims, proj_dims, 3,1),
@@ -161,6 +164,7 @@ class Counter(nn.Module):
         # print(attn_map.shape)
         affine_attn_map = self.attn_weight.expand(B, -1, -1, -1) * attn_map + self.attn_bias.expand(B, -1, -1, -1)
         # print('affine_attn_map: ', affine_attn_map.shape)
+        affine_attn_map = self.aff_proj(affine_attn_map)
         x = affine_attn_map
         
         for i, d in enumerate(self.decoder):
@@ -173,7 +177,7 @@ class Counter(nn.Module):
                 x = d(x + self.proj2(v[-4]) * F.interpolate(affine_attn_map, scale_factor=8))
             else:
                 x = d(x)
-        # print('density map, attention map', x.shape, F.interpolate(affine_attn_map, scale_factor=16).shape)
+        print('density map, attention map', x.shape, F.interpolate(affine_attn_map, scale_factor=16).shape)
         return x, F.interpolate(affine_attn_map, scale_factor=16), affine_attn_map
 
     def d3_to_d4(self, t):
