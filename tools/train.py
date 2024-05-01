@@ -1,278 +1,194 @@
-import os
+import math
+import pickle
 import numpy as np
-import argparse
-import time
-import random
-import yaml
-from dotmap import DotMap
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.backends.cudnn as cudnn
-from torch.utils.tensorboard import SummaryWriter
 
-from .dataset.datasets import get_train_loader, get_val_loader
-from .models.new_mod import Counter 
-from .util import save_density_map, get_model_dir
-from .test import validate_model
+from .ViT_Encoder import VPTCLIPVisionTransformer as vpt
+from .ViT_Encoder_add import SPTCLIPVisionTransformer as spt
+from .Text_Encoder import CLIPTextEncoder
 
+from timm.models.layers import trunc_normal_
+from .models_vit import CrossAttentionBlock
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description='VLCoutner')
-    parser.add_argument('--config', type=str, required=True, help='config file')
-    parser.add_argument('--gpus', type=lambda s: [int(item) for item in s.split(',')], required=True, help='gpu ids')
-    parser.add_argument('--enc', type=str, required=True, help='encoder setting')
-    parser.add_argument('--num_tokens', type=int, help='num of SPT')
-    parser.add_argument('--patch_size', type=int, required=True, help='patch size')
-    parser.add_argument('--prompt', type=str, required=True, help='prompt type')
-    parser.add_argument('--con', type=str, default="none", help='type of con loss')
-    parser.add_argument('--exp', type=int, required=True, help='exp')
-    parser.add_argument('--resume_weights', type=str, help='resume_weights')
-
-    parsed = parser.parse_args()
-    assert parsed.config is not None
-    with open(parsed.config, 'r') as f:
-        config = yaml.safe_load(f)
-    args = DotMap(config)
-    args.config = parsed.config
-    args.gpus = parsed.gpus
-    args.enc = parsed.enc
-    args.num_tokens = parsed.num_tokens
-    args.patch_size = parsed.patch_size
-    args.prompt = parsed.prompt
-    args.con = parsed.con
-    args.exp = parsed.exp
-    args.resume_weights = parsed.resume_weights
-
-    if args.enc == 'res101':
-        args.MODEL.pretrain = '/workspace/YESCUTMIX/pretrain/RN101.pt'
-
-    model_save_dir = get_model_dir(args)
-    os.makedirs(model_save_dir,exist_ok=True)
-    with open(os.path.join(model_save_dir, 'FSC.yaml'), 'w') as f:
-        yaml.dump(args.toDict(), f, default_flow_style=False)
-
-    return args
+def trunc_normal_init(module: nn.Module,
+                      mean: float = 0,
+                      std: float = 1,
+                      a: float = -2,
+                      b: float = 2,
+                      bias: float = 0) -> None:
+    if hasattr(module, 'weight') and module.weight is not None:
+        trunc_normal_(module.weight, mean, std, a, b)  # type: ignore
+    if hasattr(module, 'bias') and module.bias is not None:
+        nn.init.constant_(module.bias, bias)  # type: ignore
 
 
-def main(args):
-    writer = SummaryWriter(get_model_dir(args)) # tensorboard
-    
-    if args.TRAIN.manual_seed is not None:
-        torch.manual_seed(args.TRAIN.manual_seed)
-        torch.cuda.manual_seed(args.TRAIN.manual_seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        np.random.seed(args.TRAIN.manual_seed)
-        random.seed(args.TRAIN.manual_seed)
-    
-    #======== Metrics initialization ========
-    best_mae = 1e7
-    best_rmse = 1e7
+def constant_init(module, val, bias=0):
+    if hasattr(module, 'weight') and module.weight is not None:
+        nn.init.constant_(module.weight, val)
+    if hasattr(module, 'bias') and module.bias is not None:
+        nn.init.constant_(module.bias, bias)
 
-    model = Counter(args).cuda()
-    for k, v in model.t_enc.named_parameters():
-        if 'prompt' not in k:
-            v.requires_grad = False
-    for k, v in model.v_enc.named_parameters():
-        if 'prompt' not in k and 'text_proj' not in k and 'MHA' not in k:
-            v.requires_grad=False
-    print(sum(p.numel() for p in model.parameters() if p.requires_grad))
-
-    start_epoch = 0
-    model_save_dir = get_model_dir(args)
-
-    #======== Data =======
-    train_loader = get_train_loader(args,mode='train')
-    val_loader = get_val_loader(args,mode='val')
-    
-    optimizer = torch.optim.AdamW(model.parameters(),args.TRAIN.lr,weight_decay=args.TRAIN.weight_decay) # args.decay -> args.weight_decay
-    # optimizer = torch.optim.AdamW([{'params': model.v_enc.parameters(), 'lr':1.0e-6}],args.TRAIN.lr, weight_decay=args.TRAIN.weight_decay)
-
-    if args.resume_weights:
-        path = os.path.join(model_save_dir, args.resume_weights)
-        if os.path.isfile(path):
-            print("=> loading weight '{}'".format(path))
-            checkpoint = torch.load(path)
-            pre_weight = checkpoint['state_dict']
-            start_epoch = checkpoint['epoch'] + 1
-            best_mae = checkpoint['best_mae']
-            best_rmse = checkpoint['best_rmse']
-            model.load_state_dict(pre_weight, strict=True)
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            # scheduler.load_state_dict(checkpoint['scheduler'])
-            print("=> loaded weight '{}'".format(path))
+class UpConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel, padding=0, flag=True):
+        super(UpConv, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel, padding=padding)
+        # if flag:
+        if flag:
+            self.gn = nn.GroupNorm(8, out_channels)
         else:
-            raise Exception("=> no weight found at '{}'".format(args.resume_weights))
+            self.gn = nn.GroupNorm(1, out_channels)
+        # self.gn = nn.GroupNorm(8, out_channels)
+        self.gelu = nn.GELU()
+        self.up = nn.UpsamplingBilinear2d(scale_factor=2)
+        self.flag = flag
+
+    def forward(self, trg):
+        trg = self.conv(trg)
+        if self.flag:
+            trg = self.up(self.gelu(self.gn(trg)))
+        return trg
 
 
-    #======== Training =======
-    for epoch in range(start_epoch, args.TRAIN.epochs):
-        train_loss, train_mae, train_rmse = train_model(
-            args = args,
-            train_loader = train_loader,
-            model = model,
-            optimizer = optimizer,
-            epoch = epoch,
-            model_save_dir = model_save_dir
-        )
-        writer.add_scalar('(meta-train): query loss',train_loss,epoch+1)
-        writer.add_scalar('(meta-train): query mae',train_mae,epoch+1)
-        writer.add_scalar('(meta-train): query rmse',train_rmse,epoch+1)
-        
-        val_mae, val_rmse = validate_model(
-            args = args,
-            val_loader = val_loader,
-            model = model,
-            model_save_dir = model_save_dir,
-            epoch = epoch,
-            mode = 'Val'
-        )
-        writer.add_scalar('(meta-test): query mae',val_mae,epoch+1)
-        writer.add_scalar('(meta-test): query rmse',val_rmse,epoch+1)
+class Counter(nn.Module):
+    def __init__(self, args):
+        super(Counter,self).__init__()
 
-        if best_mae >= val_mae:
-            best_mae = val_mae
-            best_rmse = val_rmse
-            filename_model = os.path.join(model_save_dir,str(epoch)+'_'+'best.pth')
-            if args.TRAIN.save_models:
-                print('Saving checkpoint to: ' + filename_model)
+        self.v = args.v
+        self.enc = args.enc
 
-                torch.save(
-                    {
-                        'epoch': epoch,
-                        'state_dict': model.state_dict(),
-                        'best_mae' : best_mae,
-                        'best_rmse' : best_rmse,
-                        'optimizer': optimizer.state_dict(),
-                        # 'scheduler': scheduler.state_dict()
-                    },
-                    filename_model
+        embed_dims = 512
+        proj_dims = 64
+        self.t_proj = nn.Linear(embed_dims, proj_dims)
+        self.v_proj = nn.Linear(embed_dims, proj_dims)
+        fim_depth = 2
+        self.fim_blocks = nn.ModuleList(
+            [
+                CrossAttentionBlock(
+                    proj_dims, # fim_embed_dim,
+                    16, # fim_num_heads,
+                    4.0, # mlp_ratio,
+                    qkv_bias=True,
+                    qk_scale=None,
+                    norm_layer= nn.LayerNorm,
                 )
-
-        if args.TRAIN.save_models:
-            filename_model = os.path.join(model_save_dir,'cur_final.pth')
-            print('Saving checkpoint to: ' + filename_model)
-
-            torch.save(
-                {
-                    'epoch': epoch,
-                    'state_dict': model.state_dict(),
-                    'best_mae' : best_mae,
-                    'best_rmse' : best_rmse,
-                    'optimizer': optimizer.state_dict(),
-                    # 'scheduler': scheduler.state_dict()
-                },
-                filename_model
-            )
-        print(' * best MAE {mae:.3f} RMSE {rmse:.3f} '
-                            .format(mae=best_mae,rmse=best_rmse))
-        filename_model = os.path.join(model_save_dir,'final.pth')
-        torch.save(
-            {
-                'epoch': epoch,
-                'state_dict': model.state_dict(),
-                'best_mae' : best_mae,
-                'best_rmse' : best_rmse,
-                'optimizer': optimizer.state_dict(),
-                # 'scheduler': scheduler.state_dict()
-            },
-            filename_model
+                for i in range(fim_depth)
+            ]
         )
-            
+        self.aff_proj = nn.Sequential(
+            nn.Conv2d(64, 1, 1, 1)
+        )
+        self.proj = nn.Sequential(
+            nn.Conv2d(768, proj_dims, 1),
+            nn.GroupNorm(8, proj_dims),
+            nn.GELU(),
+            nn.UpsamplingBilinear2d(scale_factor=2)
+        )
 
-def train_model(
-    args: argparse.Namespace,
-    train_loader: torch.utils.data.DataLoader,
-    model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
-    epoch: int,
-    model_save_dir: str
-):
+        self.proj1 = nn.Sequential(
+            nn.Conv2d(768, proj_dims, 1),
+            nn.GroupNorm(8, proj_dims),
+            nn.GELU(),
+            nn.UpsamplingBilinear2d(scale_factor=4)
+        )
+        self.proj2 = nn.Sequential(
+            nn.Conv2d(768, proj_dims, 1),
+            nn.GroupNorm(8, proj_dims),
+            nn.GELU(),
+            nn.UpsamplingBilinear2d(scale_factor=8)
+        )
+        self.decoder = nn.ModuleList([
+                                    UpConv(1, proj_dims, 3, 1),
+                                    UpConv(proj_dims, proj_dims, 3,1),
+                                    UpConv(proj_dims, proj_dims, 3, 1),
+                                    UpConv(proj_dims, proj_dims, 3,1),
+                                    UpConv(proj_dims, 1, 1, flag=False)
+                                ])
 
-    model.train()
-    mse_criterion = nn.MSELoss(reduction='mean').cuda()
-    temp = 2
-    qry_loss = 0
-    qry_mae = 0
-    qry_rmse = 0
-    numOfQ = 0
-    runtime = 0
-    t0= time.time()
-    for i, (query_img, query_den, tokenized_text, class_chosen) in enumerate(train_loader):
-        query_img, query_den, tokenized_text = query_img.cuda().float(), query_den.cuda().float(), tokenized_text.cuda()
-        numOfQ += query_img.shape[0]
-        optimizer.zero_grad()
 
-        out, attn, ori_attn = model(query_img, tokenized_text)
-        # out, attn, ori_attn, tot_attn_map = model(query_img, tokenized_text)
+        self.attn_weight = nn.Parameter(torch.ones(1, 1, 24, 24))
+        self.attn_bias = nn.Parameter(torch.zeros(1, 1, 24, 24))
+        self.init_weights()
 
-        main = mse_criterion(out, query_den)
-        
-        if args.con == "none":
-            infonce = 0
-        elif args.con == "con":
-            mask = F.interpolate(query_den, scale_factor=1/16)
-            mask = (mask - mask.min()) / (mask.max() - mask.min())
-            mask = torch.where(mask>0, 1.0, 0.0)
-            pos = torch.sum(torch.exp(mask * ori_attn), dim=(1,2,3))
-            neg = torch.sum(torch.exp(ori_attn), dim=(1,2,3))
-            
-            infonce = torch.mean(-torch.log(pos / (pos + neg)))
-        elif args.con == "rank":
-            mask = F.interpolate(query_den, scale_factor=1/args.patch_size)
-            mask = (mask - mask.min()) / (mask.max() - mask.min())
-            infonce = 0
-            rank = [1.0, 0.8, 0.6, 0.4]
-            for i in range(3):
-                r_mask = torch.where((mask > rank[i+1]) & (mask < rank[i]), 1.0, 0.0)            
-                inv_mask = torch.where(mask < rank[i+1], 1.0, 0.0)
-                pos = torch.sum(torch.exp(ori_attn * r_mask), dim=(1,2,3))
-                neg = torch.sum(torch.exp(ori_attn * inv_mask), dim=(1,2,3))
-                
-                infonce += torch.mean(-torch.log(pos / (pos + neg)))
+        if args.enc == "spt":
+            self.v_enc = spt(pretrained=args.MODEL.pretrain+'ViT-B-16.pt', num_tokens=args.num_tokens, patch_size=args.patch_size)
+            self.v_enc.init_weights()
+        elif args.enc == "vpt":
+            self.v_enc = vpt(pretrained=args.MODEL.pretrain+'ViT-B-16.pt')
+            self.v_enc.init_weights()
         else:
             raise NotImplementedError
-
-        loss =  main + 0.000001 * infonce
         
-        loss.backward()
-        optimizer.step()
+        self.t_enc = CLIPTextEncoder(pretrained=args.MODEL.pretrain+'ViT-B-16.pt', embed_dim=embed_dims)
+        self.t_enc.init_weights()
+
+    def init_weights(self):
+        for n, m in self.named_modules():
+            if isinstance(m, nn.Linear):
+                trunc_normal_init(m, std=.02, bias=0)
+            elif isinstance(m, nn.LayerNorm):
+                constant_init(m, val=1.0, bias=0.0)
+            elif isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.01)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, v, tokenized_text):
+        B = v.size(0)
+        # print('tokennized text: ', tokenized_text.shape)
+        t = []
+        for tt in tokenized_text:
+            _t = self.t_enc(tt)
+            _t = _t / _t.norm(dim=-1, keepdim=True)
+            _t = _t.mean(dim=0)
+            _t /= _t.norm()
+            t.append(_t)
+        _t = torch.stack(t)
+        # print('text shape: ', _t.shape)
+        if self.enc == "vpt":
+            v = self.v_enc(v)
+        elif self.enc == "spt":
+            v = self.v_enc(v, _t.unsqueeze(1))
+        else:
+            raise NotImplementedError
+        # print('shape of feature: ', v[0].shape, v[1].shape)
+
+        proj_v, _t = self.d3_to_d4(self.v_proj(self.d4_to_d3(v[-1]))), self.t_proj(_t)
+        # print('proj_v, _t: ', proj_v.shape, _t.shape)
+        attn_map = self.d4_to_d3(proj_v)
+        for blk in self.fim_blocks:
+            attn_map = blk(attn_map, _t.unsqueeze(0))
+        # print('attn_map, _t: ', attn_map.shape, _t.shape)
+        attn_map = self.d3_to_d4(attn_map)
+        # print(attn_map.shape)
+        affine_attn_map = self.attn_weight.expand(B, -1, -1, -1) * attn_map + self.attn_bias.expand(B, -1, -1, -1)
+        # print('affine_attn_map: ', affine_attn_map.shape)
+        affine_attn_map = self.aff_proj(affine_attn_map)
+        x = affine_attn_map
+        
+        for i, d in enumerate(self.decoder):
+            # print(f'each step density {i}: ', x.shape)
+            if i==1:
+                x = d(x + self.proj(v[-2]) * F.interpolate(affine_attn_map, scale_factor=2))
+            elif i==2:
+                x = d(x + self.proj1(v[-3]) * F.interpolate(affine_attn_map, scale_factor=4))
+            elif i==3:
+                x = d(x + self.proj2(v[-4]) * F.interpolate(affine_attn_map, scale_factor=8))
+            else:
+                x = d(x)
+        print('density map, attention map', x.shape, F.interpolate(affine_attn_map, scale_factor=16).shape)
+        return x, F.interpolate(affine_attn_map, scale_factor=16), affine_attn_map
+
+    def d3_to_d4(self, t):
+        b, hw, c = t.size()
+        if hw % 2 != 0:
+            t = t[:, 1:]
+        h = w = int(math.sqrt(hw))
+        return t.transpose(1, 2).reshape(b, c, h, w)
+
+    def d4_to_d3(self, t):
+        return t.flatten(-2).transpose(-1, -2)
 
 
-        qry_loss += loss
-        out /= 60.
-        query_den /= 60.
-        pred_cnt = torch.sum(out, dim=(1,2,3))
-        gt_cnt = torch.sum(query_den, dim=(1,2,3))
-        cnt_err = abs(pred_cnt-gt_cnt)
-        qry_mae += torch.sum(cnt_err).item()
-        qry_rmse += torch.sum(cnt_err**2).item()
-        t1= time.time()
-        runtime += (t1-t0)
-        if i % args.TRAIN.log_freq == 0:
-            print('Epoch:[{}][{}/{}]\t'
-                  'main/MAE/RMSE [{},{:5.3f},{:5.3f}]\t'
-                  'Runtime:[{}]'
-                  .format(epoch, i,len(train_loader),
-                          main, qry_mae/numOfQ, (qry_rmse/numOfQ)**0.5,
-                          runtime/numOfQ),flush=True)
-            visualize_path = model_save_dir + "/visualize_train"
-            os.makedirs(visualize_path,exist_ok=True)
-            # save_density_map(query_img[0],out[0],attn[0],query_den[0,0], visualize_path, str(epoch)+'_'+str(i),class_chosen=class_chosen[0])
-            # save_density_map(query_img[0],out1[0],attn1[0],query_den[0,1], visualize_path, str(epoch)+'_'+str(i)+'cutmix',class_chosen=shuffled_class_name[0])
 
-    qry_loss = qry_loss / len(train_loader)
-    qry_mae = qry_mae / len(train_loader.dataset) 
-    qry_rmse = (qry_rmse / len(train_loader.dataset)) ** 0.5
-    print('Epoch {}: Loss/MAE/RMSE/AVG runtime [{:5.5f},{:5.3f},{:5.3f},{}]'.format(
-        epoch, qry_loss,qry_mae,qry_rmse,runtime/len(train_loader)))
-    print("Epoch runtime {}".format(time.time() - runtime))
-    return qry_loss, qry_mae, qry_rmse
-
-if __name__ == "__main__":
-    args = parse_args()
-    os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(str(x) for x in args.gpus)
-
-    main(args)
