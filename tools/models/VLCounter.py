@@ -135,15 +135,15 @@ class Counter(nn.Module):
             v = self.v_enc(v, _t.unsqueeze(1))
         else:
             raise NotImplementedError
-        print('shape of feature: ', len(v))
-        print('v[0], v[1], v[2], v[3], v[4]: ', v[0].shape, v[1].shape, v[2].shape, v[3].shape, v[4].shape)
+        # print('shape of feature: ', len(v))
+        # print('v[0], v[1], v[2], v[3], v[4]: ', v[0].shape, v[1].shape, v[2].shape, v[3].shape, v[4].shape)
 
         proj_v, _t = self.d3_to_d4(self.v_proj(self.d4_to_d3(v[-1]))), self.t_proj(_t)
         # print('proj_v, _t: ', proj_v.shape, _t.shape)
         attn_map = torch.einsum('bc,bchw->bhw', _t, proj_v).unsqueeze(1)
-        print('attn_map: ', attn_map.shape)
+        # print('attn_map: ', attn_map.shape)
         affine_attn_map = self.attn_weight.expand(B, -1, -1, -1) * attn_map + self.attn_bias.expand(B, -1, -1, -1)
-        print('proj_v, affine_attn_map: ', proj_v.shape, affine_attn_map.shape)
+        # print('proj_v, affine_attn_map: ', proj_v.shape, affine_attn_map.shape)
         x = torch.cat([proj_v, affine_attn_map], dim=1)
         for i, d in enumerate(self.decoder):
             # print(f'each step density {i}: ', x.shape)
