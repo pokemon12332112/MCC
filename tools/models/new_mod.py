@@ -158,7 +158,7 @@ class Counter(nn.Module):
         # print('proj_v, _t: ', proj_v.shape, _t.shape)
         attn_map = self.d4_to_d3(proj_v)
         for blk in self.fim_blocks:
-            attn_map = blk(attn_map, _t.unsqueeze(0))
+            attn_map = blk(attn_map, _t.unsqueeze(1))
         # print('attn_map, _t: ', attn_map.shape, _t.shape)
         attn_map = self.d3_to_d4(attn_map)
         # print(attn_map.shape)
