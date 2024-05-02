@@ -147,9 +147,9 @@ def validate_model(
             # os.makedirs(visualize_path,exist_ok=True)
             # save_density_map(query_img[0],density_map,attn_map,query_den[0],visualize_path,str(epoch)+'_'+class_chosen[0]+'_'+str(i),class_chosen=class_chosen[0])
             # already_print_class.append(class_chosen[0])
-            print(
-                f"{i}/{len(val_loader.dataset)}: pred_cnt: {pred_cnt},  gt_cnt: {gt_cnt},  AE: {cnt_err},  SE: {cnt_err ** 2} "
-            )   
+            # print(
+                # f"{i}/{len(val_loader.dataset)}: pred_cnt: {pred_cnt},  gt_cnt: {gt_cnt},  AE: {cnt_err},  SE: {cnt_err ** 2} "
+            # )   
         qry_mae = qry_mae / len(val_loader.dataset)
         qry_rmse = (qry_rmse/len(val_loader.dataset)) ** 0.5
         
