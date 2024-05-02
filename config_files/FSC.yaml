@@ -11,7 +11,7 @@ DATA:
 TRAIN:
   manual_seed: 42
   ckpt_path: checkpoints/
-  batch_size: 1
+  batch_size: 16
   epochs: 300
   log_freq : 300
   save_models: True
