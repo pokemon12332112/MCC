@@ -15,7 +15,7 @@ TRAIN:
   epochs: 300
   log_freq : 300
   save_models: True
-  lr: 1.0e-5
+  lr: 6.0e-6
   weight_decay: 1.0e-2
 MODEL:
   pretrain: ./pretrain/ # Pretrain model
