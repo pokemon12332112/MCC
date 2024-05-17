@@ -1,9 +1,3 @@
-!pip install -r requirements.txt
-!pip install hub
-!pip install dotmap
-!pip install inflect
-!pip install ftfy
-!pip install timm
 import os
 import torch
 import torchvision
