@@ -59,17 +59,17 @@ def init_dot(denmap, n, scale_factor=8):
 @torch.no_grad()
 def OT_M(A, A_coord, B, B_coord, scale_factor=8, max_itern=8):
     for iter in range(max_itern):
-        print(iter)
+        # print(iter)
         # OT-step
         C = per_cost(A_coord, B_coord)
-        print('here1')
+        # print('here1')
         F, G = ot(A, B, C)
-        print('here1')
+        # print('here1')
         PI = ot.plan(A, B, F, G, C)
         # M-step
         nB_coord = per_cost.barycenter(PI, A_coord)
         move = torch.norm(nB_coord - B_coord, p=2, dim=-1)
-        print('here2')
+        # print('here2')
         if move.mean().item() < 1 and move.max().item() < scale_factor:
             break
         B_coord = nB_coord
@@ -90,7 +90,7 @@ def den2seq(denmap, scale_factor=8, max_itern=16, ot_scaling=0.75):
     
     A, A_coord = den2coord(denmap, scale_factor)
     B, B_coord = init_dot(denmap, num, scale_factor)
-    print('here')
+    # print('here')
     flocs = OT_M(A, A_coord, B, B_coord, scale_factor, max_itern=max_itern)
     return flocs
 
