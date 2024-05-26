@@ -56,14 +56,14 @@ class SampleOT:
         logA, logB = A.log(), B.log()
         Cab, Cba = cost, cost.permute(0, 2, 1)
         factor = dampening(epsilons[0], self.reach)
-        print('here3')
+        # print('here3')
         if F is None:
             F = factor * softmin(logB, torch.zeros_like(B), Cab, epsilons[0])
         if G is None:
             G = factor * softmin(logA, torch.zeros_like(A), Cba, epsilons[0])
-        print(len(epsilons))
+        # print(len(epsilons))
         for i, epsilon in enumerate(epsilons):
-            print(i)
+            # print(i)
             factor = dampening(epsilon, self.reach)
             tF = factor * softmin(logB, G, Cab, epsilon)
             tG = factor * softmin(logA, F, Cba, epsilon)
@@ -72,7 +72,7 @@ class SampleOT:
         factor = dampening(self.blur, self.reach)
         F, G = factor * softmin(logB, G, Cab, self.blur), factor * softmin(logA, F, Cba, self.blur)
         
-        print('here4')
+        # print('here4')
         return F.detach(), G.detach()
 
     def loss(self, A, B, F, G):
