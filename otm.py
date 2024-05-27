@@ -3,6 +3,7 @@
 import torch
 import torch.nn.functional as tF
 from simple_ot import SampleOT
+import numpy as np
 
 eps = 1e-12
 class L2_DIS:
