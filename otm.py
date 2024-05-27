@@ -49,7 +49,11 @@ def init_dot(denmap, n, scale_factor=8):
     d_coord = torch.nonzero(norm_den > eps)
     norm_den = norm_den[d_coord[:, 0], d_coord[:, 1]]
 
-    cidx = torch.multinomial(norm_den, num_samples=n, replacement=False)
+    # cidx = torch.multinomial(norm_den, num_samples=n, replacement=False)
+    norm_den_np = norm_den.cpu().numpy() if isinstance(norm_den, torch.Tensor) else norm_den
+    norm_den_np = norm_den_np / norm_den_np.sum()
+    samples = np.random.choice(len(norm_den_np), size=n, replace=False, p=norm_den_np)
+    cidx = torch.tensor(samples, dtype=torch.long)
     coord = d_coord[cidx]
     
     B = torch.ones(1, n, 1).to(denmap)
