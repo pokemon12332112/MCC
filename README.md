@@ -76,19 +76,7 @@ python -m tools.test --config config_files/FSC.yaml --gpus 0 --exp 0 --enc spt -
 ```
 
 
-## Citation
-Consider citing us if you find our paper useful in your research :).
-```
-@inproceedings{kang2024vlcounter,
-  title={VLCounter: Text-Aware Visual Representation for Zero-Shot Object Counting},
-  author={Kang, Seunggu and Moon, WonJun and Kim, Euiyeon and Heo, Jae-Pil},
-  booktitle={Proceedings of the AAAI Conference on Artificial Intelligence},
-  volume={38},
-  number={3},
-  pages={2714--2722},
-  year={2024}
-}
-```
+
 
 ## Acknowledgements
 
