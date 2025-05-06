@@ -52,7 +52,7 @@ pip install hub
 
 If you want to use the docker environment, please download the docker image through the command below
 ```
-docker pull sgkang0305/vlcounter
+docker pull pokemon12332112/MCC
 ```
 
 ### 3. Download CLIP weight and Byte pair encoding (BPE) file
